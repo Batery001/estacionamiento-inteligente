@@ -4,7 +4,6 @@ import {
   computeParkingGrid,
   type GridLayout,
 } from "@/lib/detectAerial";
-import { detectParkingSlotsAuto } from "@/lib/detectParkingSlots";
 import { preprocessCellImageData } from "@/lib/cnnPreprocess";
 
 import { parsePklotXml } from "@/lib/pklotXml";
@@ -34,7 +33,7 @@ export type AerialResult = {
   total: number;
   imageWidth: number;
   imageHeight: number;
-  mode: "pklot" | "auto" | "grid";
+  mode: "pklot" | "grid";
   grid?: GridLayout;
 };
 
@@ -208,34 +207,20 @@ export async function predictAerialLot(
   const tf = await getTf();
   const bitmap = await createImageBitmap(file);
   const { width, height } = bitmap;
+  const grid = computeParkingGrid(width, height);
 
-  let mode: AerialResult["mode"] = "auto";
-  let grid: GridLayout | undefined;
-  let cells: { x: number; y: number; w: number; h: number }[] = [];
+  const cellW = grid.roiW / grid.cols;
+  const cellH = grid.roiH / grid.rows;
+  const cells: { x: number; y: number; w: number; h: number }[] = [];
 
-  const autoSlots = await detectParkingSlotsAuto(bitmap);
-  if (autoSlots.length >= 8) {
-    cells = autoSlots.map((s) => ({
-      x: s.x,
-      y: s.y,
-      w: s.width,
-      h: s.height,
-    }));
-  } else {
-    mode = "grid";
-    grid = computeParkingGrid(width, height);
-    const cellW = grid.roiW / grid.cols;
-    const cellH = grid.roiH / grid.rows;
-
-    for (let row = 0; row < grid.rows; row++) {
-      for (let col = 0; col < grid.cols; col++) {
-        cells.push({
-          x: grid.marginX + col * cellW,
-          y: grid.marginY + row * cellH,
-          w: cellW,
-          h: cellH,
-        });
-      }
+  for (let row = 0; row < grid.rows; row++) {
+    for (let col = 0; col < grid.cols; col++) {
+      cells.push({
+        x: grid.marginX + col * cellW,
+        y: grid.marginY + row * cellH,
+        w: cellW,
+        h: cellH,
+      });
     }
   }
 
@@ -281,7 +266,7 @@ export async function predictAerialLot(
     total: slots.length,
     imageWidth: width,
     imageHeight: height,
-    mode,
+    mode: "grid",
     grid,
   };
 }
