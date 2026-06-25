@@ -280,7 +280,7 @@ export function ImageDetector() {
           {!loading && aerialResult && (
             <div className="mt-6 space-y-4">
               <div className="inline-flex rounded-full bg-parking-500/20 px-3 py-1 text-xs text-parking-300">
-                Modo aéreo · CNN por celda
+                Modo aéreo · CNN + análisis visual por celda
               </div>
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div className="rounded-lg bg-emerald-500/10 p-3">

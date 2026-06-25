@@ -4,6 +4,11 @@ import {
   computeParkingGrid,
   type GridLayout,
 } from "@/lib/detectAerial";
+import {
+  analyzeCellForVehicle,
+  fuseAerialScores,
+  AERIAL_OCCUPIED_THRESHOLD,
+} from "@/lib/cellAnalysis";
 
 export type PredictionResult = {
   label: "Occupied" | "Empty";
@@ -118,9 +123,12 @@ function preprocessImageData(
   });
 }
 
-function scoreToResult(occupiedScore: number): Omit<PredictionResult, "engine"> {
+function scoreToResult(
+  occupiedScore: number,
+  threshold = 0.5,
+): Omit<PredictionResult, "engine"> {
   const label: PredictionResult["label"] =
-    occupiedScore >= 0.5 ? "Occupied" : "Empty";
+    occupiedScore >= threshold ? "Occupied" : "Empty";
   const confidence =
     label === "Occupied" ? occupiedScore : 1 - occupiedScore;
   return { label, confidence, occupiedScore };
@@ -198,12 +206,10 @@ export async function predictAerialLot(
 
   for (let i = 0; i < total; i += BATCH_SIZE) {
     const batchCells = cells.slice(i, i + BATCH_SIZE);
-    const batchTensors = batchCells.map((c) =>
-      preprocessImageData(
-        tf,
-        cropCell(bitmap, width, height, c.x, c.y, c.w, c.h),
-      ),
+    const cellImages = batchCells.map((c) =>
+      cropCell(bitmap, width, height, c.x, c.y, c.w, c.h),
     );
+    const batchTensors = cellImages.map((img) => preprocessImageData(tf, img));
 
     const batchInput = tf.concat(batchTensors) as import("@tensorflow/tfjs").Tensor4D;
     batchTensors.forEach((t) => t.dispose());
@@ -211,7 +217,12 @@ export async function predictAerialLot(
     const scores = await predictTensor(batchInput);
 
     batchCells.forEach((c, j) => {
-      const { label, confidence } = scoreToResult(scores[j]);
+      const visualScore = analyzeCellForVehicle(cellImages[j]);
+      const fused = fuseAerialScores(scores[j], visualScore);
+      const { label, confidence } = scoreToResult(
+        fused,
+        AERIAL_OCCUPIED_THRESHOLD,
+      );
       slots.push({
         x: c.x,
         y: c.y,
