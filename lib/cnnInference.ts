@@ -4,17 +4,13 @@ import {
   computeParkingGrid,
   type GridLayout,
 } from "@/lib/detectAerial";
-import {
-  analyzeCellForVehicle,
-  fuseAerialScores,
-  AERIAL_OCCUPIED_THRESHOLD,
-} from "@/lib/cellAnalysis";
+import { preprocessCellImageData } from "@/lib/cnnPreprocess";
 
 export type PredictionResult = {
   label: "Occupied" | "Empty";
   confidence: number;
   occupiedScore: number;
-  engine: "cnn" | "unavailable";
+  engine: "cnn";
 };
 
 export type SlotDetection = {
@@ -36,15 +32,22 @@ export type AerialResult = {
   grid: GridLayout;
 };
 
+export type ModelInfo = {
+  source: string;
+  architecture: string;
+};
+
 type TfModule = typeof import("@tensorflow/tfjs");
 
 let tfModule: TfModule | null = null;
 let model: tf.LayersModel | null = null;
+let modelInfo: ModelInfo = { source: "unknown", architecture: "cnn-hito6" };
 let loadPromise: Promise<boolean> | null = null;
 
 const MANIFEST_URL = "/models/parking/weights_manifest.json";
 const WEIGHTS_URL = "/models/parking/weights.bin";
 const BATCH_SIZE = 16;
+const CNN_THRESHOLD = 0.5;
 
 async function getTf(): Promise<TfModule> {
   if (!tfModule) {
@@ -62,12 +65,21 @@ export async function isCnnModelAvailable(): Promise<boolean> {
   }
 }
 
+export function getModelInfo(): ModelInfo {
+  return modelInfo;
+}
+
 async function loadWeightsIntoModel(
   tf: TfModule,
   parkingModel: tf.LayersModel,
 ): Promise<void> {
   const manifest = await fetch(MANIFEST_URL).then((r) => r.json());
   const buffer = await fetch(WEIGHTS_URL).then((r) => r.arrayBuffer());
+
+  modelInfo = {
+    source: manifest.source ?? "embedded",
+    architecture: manifest.architecture ?? "cnn-hito6",
+  };
 
   const tensors: tf.Tensor[] = [];
   let offset = 0;
@@ -115,20 +127,18 @@ function preprocessImageData(
   tf: TfModule,
   imageData: ImageData,
 ): import("@tensorflow/tfjs").Tensor4D {
+  const enhanced = preprocessCellImageData(imageData);
   return tf.tidy(() => {
-    const pixels = tf.browser.fromPixels(imageData);
+    const pixels = tf.browser.fromPixels(enhanced);
     const resized = tf.image.resizeBilinear(pixels, [64, 64]);
     const normalized = resized.div(255.0);
     return normalized.expandDims(0) as import("@tensorflow/tfjs").Tensor4D;
   });
 }
 
-function scoreToResult(
-  occupiedScore: number,
-  threshold = 0.5,
-): Omit<PredictionResult, "engine"> {
+function scoreToResult(occupiedScore: number): Omit<PredictionResult, "engine"> {
   const label: PredictionResult["label"] =
-    occupiedScore >= threshold ? "Occupied" : "Empty";
+    occupiedScore >= CNN_THRESHOLD ? "Occupied" : "Empty";
   const confidence =
     label === "Occupied" ? occupiedScore : 1 - occupiedScore;
   return { label, confidence, occupiedScore };
@@ -168,7 +178,15 @@ export async function predictWithCnn(file: File): Promise<PredictionResult> {
 
   const tf = await getTf();
   const bitmap = await createImageBitmap(file);
-  const imageData = cropCell(bitmap, bitmap.width, bitmap.height, 0, 0, bitmap.width, bitmap.height);
+  const imageData = cropCell(
+    bitmap,
+    bitmap.width,
+    bitmap.height,
+    0,
+    0,
+    bitmap.width,
+    bitmap.height,
+  );
   const input = preprocessImageData(tf, imageData);
   const [score] = await predictTensor(input);
   return { ...scoreToResult(score), engine: "cnn" };
@@ -206,10 +224,12 @@ export async function predictAerialLot(
 
   for (let i = 0; i < total; i += BATCH_SIZE) {
     const batchCells = cells.slice(i, i + BATCH_SIZE);
-    const cellImages = batchCells.map((c) =>
-      cropCell(bitmap, width, height, c.x, c.y, c.w, c.h),
+    const batchTensors = batchCells.map((c) =>
+      preprocessImageData(
+        tf,
+        cropCell(bitmap, width, height, c.x, c.y, c.w, c.h),
+      ),
     );
-    const batchTensors = cellImages.map((img) => preprocessImageData(tf, img));
 
     const batchInput = tf.concat(batchTensors) as import("@tensorflow/tfjs").Tensor4D;
     batchTensors.forEach((t) => t.dispose());
@@ -217,12 +237,7 @@ export async function predictAerialLot(
     const scores = await predictTensor(batchInput);
 
     batchCells.forEach((c, j) => {
-      const visualScore = analyzeCellForVehicle(cellImages[j]);
-      const fused = fuseAerialScores(scores[j], visualScore);
-      const { label, confidence } = scoreToResult(
-        fused,
-        AERIAL_OCCUPIED_THRESHOLD,
-      );
+      const { label, confidence } = scoreToResult(scores[j]);
       slots.push({
         x: c.x,
         y: c.y,

@@ -21,21 +21,22 @@ Sistema de **gestión inteligente de estacionamientos** (Proyecto 4) basado en V
 | F1-Score | 90.87% |
 | Tiempo entrenamiento | 17.92 min |
 
-## Motor CNN (todo en la página)
+## Motor CNN
 
-La web incluye la **CNN embebida** en `public/models/parking/`. No necesitas Colab para usar la demo:
+La web usa **solo la CNN** (TensorFlow.js) — sin heurísticas.
 
-- `weights_manifest.json` + `weights.bin` — pesos de la red
-- `lib/cnnArchitecture.ts` — misma arquitectura que el notebook
-- Inferencia con **TensorFlow.js** en el navegador
+| Origen | Calidad | Cómo obtenerlo |
+|---|---|---|
+| `colab-pklot` | **Mejor** — 1M+ imágenes PKLot | Celda 3 del notebook en Colab |
+| `synthetic-pklot` | Desarrollo / demo | `python scripts/train_and_export.py` |
 
-Regenerar pesos localmente:
+### Conectar pesos de Colab (recomendado)
 
-```bash
-python scripts/train_and_export.py
-```
+1. Entrena en Colab (`notebooks/Hito5-6-CNN.ipynb`).
+2. Ejecuta celda **3** → descarga `parking_weights.zip`.
+3. Copia a `public/models/parking/` y haz push.
 
-El notebook en `notebooks/` es para entrenamiento avanzado con PKLot completo en Colab.
+La web mostrará **"pesos PKLot (Colab)"** en el banner.
 
 ## Desarrollo local
 

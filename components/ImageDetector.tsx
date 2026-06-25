@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AerialOverlay } from "@/components/AerialOverlay";
 import {
+  getModelInfo,
   loadCnnModel,
   predictAerialLot,
   predictParkingSpot,
@@ -51,20 +52,36 @@ function SpotFrame({
   );
 }
 
-function ModelStatusBanner({ status }: { status: ModelStatus }) {
+function ModelStatusBanner({
+  status,
+  source,
+}: {
+  status: ModelStatus;
+  source?: string;
+}) {
+  const sourceLabel =
+    source === "colab-pklot"
+      ? "pesos PKLot (Colab)"
+      : source === "synthetic-pklot"
+        ? "pesos sintéticos — exporta Colab para mejores resultados"
+        : source;
+
   if (status === "loading") {
     return (
       <div className="flex items-center gap-3 rounded-xl border border-parking-500/30 bg-parking-500/10 p-4 text-sm text-parking-200">
         <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-parking-400 border-t-transparent" />
-        Cargando cerebro CNN…
+        Cargando CNN (TensorFlow.js)…
       </div>
     );
   }
   if (status === "ready") {
     return (
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">
-        <span className="font-semibold">CNN activa</span> — modo recorte o vista
-        aérea con detección múltiple.
+        <span className="font-semibold">CNN activa</span> — inferencia 100% red
+        neuronal convolucional.
+        {sourceLabel && (
+          <p className="mt-1 text-xs text-emerald-300/80">Origen: {sourceLabel}</p>
+        )}
       </div>
     );
   }
@@ -90,9 +107,13 @@ export function ImageDetector() {
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<string | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatus>("loading");
+  const [modelSource, setModelSource] = useState<string | undefined>();
 
   useEffect(() => {
-    loadCnnModel().then((ok) => setModelStatus(ok ? "ready" : "missing"));
+    loadCnnModel().then((ok) => {
+      setModelStatus(ok ? "ready" : "missing");
+      if (ok) setModelSource(getModelInfo().source);
+    });
   }, []);
 
   const handleFile = useCallback(
@@ -171,7 +192,7 @@ export function ImageDetector() {
 
   return (
     <div className="space-y-6">
-      <ModelStatusBanner status={modelStatus} />
+      <ModelStatusBanner status={modelStatus} source={modelSource} />
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="glass rounded-xl border-l-4 border-emerald-500 p-4">
@@ -280,7 +301,7 @@ export function ImageDetector() {
           {!loading && aerialResult && (
             <div className="mt-6 space-y-4">
               <div className="inline-flex rounded-full bg-parking-500/20 px-3 py-1 text-xs text-parking-300">
-                Modo aéreo · CNN + análisis visual por celda
+                Modo aéreo · CNN por celda
               </div>
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div className="rounded-lg bg-emerald-500/10 p-3">

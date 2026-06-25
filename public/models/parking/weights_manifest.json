@@ -1,4 +1,11 @@
 {
+  "source": "synthetic-pklot",
+  "architecture": "cnn-hito6",
+  "inputSize": [
+    64,
+    64,
+    3
+  ],
   "weights": [
     {
       "shape": [
