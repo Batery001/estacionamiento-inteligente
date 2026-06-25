@@ -27,9 +27,12 @@ next-env.d.ts
 __pycache__/
 *.pyc
 .venv/
+.venv-train/
 # Modelo exportado (archivos grandes — subir manualmente desde Colab)
 public/models/parking/*
 !public/models/parking/README.md
+!public/models/parking/weights_manifest.json
+!public/models/parking/weights.bin
 
 # ide
 .idea/

@@ -1,3 +1,6 @@
+import type * as tf from "@tensorflow/tfjs";
+import { createParkingCnn } from "@/lib/cnnArchitecture";
+
 export type PredictionResult = {
   label: "Occupied" | "Empty";
   confidence: number;
@@ -8,10 +11,11 @@ export type PredictionResult = {
 type TfModule = typeof import("@tensorflow/tfjs");
 
 let tfModule: TfModule | null = null;
-let model: import("@tensorflow/tfjs").LayersModel | null = null;
+let model: tf.LayersModel | null = null;
 let loadPromise: Promise<boolean> | null = null;
 
-const MODEL_URL = "/models/parking/model.json";
+const MANIFEST_URL = "/models/parking/weights_manifest.json";
+const WEIGHTS_URL = "/models/parking/weights.bin";
 
 async function getTf(): Promise<TfModule> {
   if (!tfModule) {
@@ -22,11 +26,33 @@ async function getTf(): Promise<TfModule> {
 
 export async function isCnnModelAvailable(): Promise<boolean> {
   try {
-    const res = await fetch(MODEL_URL, { method: "HEAD" });
+    const res = await fetch(MANIFEST_URL, { method: "HEAD" });
     return res.ok;
   } catch {
     return false;
   }
+}
+
+async function loadWeightsIntoModel(
+  tf: TfModule,
+  parkingModel: tf.LayersModel,
+): Promise<void> {
+  const manifest = await fetch(MANIFEST_URL).then((r) => r.json());
+  const buffer = await fetch(WEIGHTS_URL).then((r) => r.arrayBuffer());
+
+  const tensors: tf.Tensor[] = [];
+  let offset = 0;
+
+  for (const spec of manifest.weights as { shape: number[] }[]) {
+    const count = spec.shape.reduce((a, b) => a * b, 1);
+    const byteLength = count * 4;
+    const slice = buffer.slice(offset, offset + byteLength);
+    tensors.push(tf.tensor(new Float32Array(slice), spec.shape));
+    offset += byteLength;
+  }
+
+  parkingModel.setWeights(tensors);
+  tensors.forEach((t) => t.dispose());
 }
 
 export async function loadCnnModel(): Promise<boolean> {
@@ -39,7 +65,9 @@ export async function loadCnnModel(): Promise<boolean> {
       if (!available) return false;
 
       const tf = await getTf();
-      model = await tf.loadLayersModel(MODEL_URL);
+      const parkingModel = createParkingCnn(tf);
+      await loadWeightsIntoModel(tf, parkingModel);
+      model = parkingModel;
       return true;
     } catch {
       model = null;

@@ -85,31 +85,22 @@ function ModelStatusBanner({ status }: { status: ModelStatus }) {
   if (status === "ready") {
     return (
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">
-        <span className="font-semibold">CNN activa</span> — inferencia con el
-        modelo exportado desde Colab (TensorFlow.js).
+        <span className="font-semibold">CNN activa</span> — motor embebido en la
+        página (TensorFlow.js). Sin Colab.
       </div>
     );
   }
 
   return (
     <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
-      <p className="font-semibold">Modelo CNN no encontrado</p>
+      <p className="font-semibold">Motor CNN no cargado</p>
       <p className="mt-2 text-amber-200/90">
-        Ejecuta la <strong>celda 3</strong> del notebook{" "}
-        <code className="rounded bg-black/20 px-1">notebooks/Hito5-6-CNN.ipynb</code>,
-        descarga <code className="rounded bg-black/20 px-1">parking_tfjs.zip</code> y
-        copia los archivos a{" "}
+        Faltan los pesos en{" "}
         <code className="rounded bg-black/20 px-1">public/models/parking/</code>.
-        Luego haz push a GitHub.
+        Ejecuta{" "}
+        <code className="rounded bg-black/20 px-1">python scripts/train_and_export.py</code>{" "}
+        o haz push del repo con los archivos incluidos.
       </p>
-      <a
-        href="https://github.com/Batery001/estacionamiento-inteligente/blob/main/public/models/parking/README.md"
-        target="_blank"
-        rel="noreferrer"
-        className="mt-2 inline-block text-xs underline"
-      >
-        Ver instrucciones completas
-      </a>
     </div>
   );
 }
@@ -131,7 +122,7 @@ export function ImageDetector() {
     async (file: File) => {
       if (modelStatus !== "ready") {
         setError(
-          "La CNN aún no está disponible. Exporta el modelo desde Colab (celda 3) y súbelo a public/models/parking/.",
+          "La CNN aún no está cargada. Verifica que weights.bin esté en public/models/parking/.",
         );
         return;
       }
@@ -166,7 +157,7 @@ export function ImageDetector() {
         const msg = e instanceof Error ? e.message : "";
         if (msg === "MODEL_NOT_LOADED") {
           setError(
-            "No se pudo cargar la CNN. Verifica que model.json esté en public/models/parking/.",
+            "No se pudo cargar la CNN. Verifica weights_manifest.json y weights.bin.",
           );
           setModelStatus("missing");
         } else {

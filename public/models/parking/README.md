@@ -1,25 +1,29 @@
-# Modelo CNN para la web
+# Motor CNN embebido
 
-Coloca aquí los archivos exportados desde Colab:
+La red neuronal vive en el proyecto y la web la carga automáticamente:
 
 ```
 public/models/parking/
-├── model.json
-├── group1-shard1of1.bin   (el nombre puede variar)
-└── ...
+├── weights_manifest.json
+└── weights.bin
 ```
 
-## Pasos
+## Regenerar pesos (opcional)
 
-1. Abre `notebooks/Hito5-6-CNN.ipynb` en Google Colab.
-2. Ejecuta las celdas 1 y 2 (datos + entrenamiento).
-3. Ejecuta la **celda 3** (exportar modelo).
-4. Descarga `parking_tfjs.zip` y descomprime.
-5. Copia **todo el contenido** del zip a esta carpeta (`public/models/parking/`).
-6. Haz `git push` — la web cargará la CNN automáticamente.
+```bash
+python scripts/train_and_export.py
+```
 
-## Verificar
+O con entorno virtual:
 
-Abre en el navegador: `/models/parking/model.json` — debe devolver JSON, no 404.
+```bash
+python -m venv .venv-train
+.venv-train\Scripts\pip install tensorflow numpy
+.venv-train\Scripts\python scripts/train_and_export.py
+```
 
-> Los archivos `.bin` pueden pesar varios MB. Si GitHub rechaza el push, usa [Git LFS](https://git-lfs.com/) o sube el modelo a un release y ajusta la URL en `lib/cnnInference.ts`.
+La arquitectura está definida en `lib/cnnArchitecture.ts` (misma que el notebook).
+
+## Reemplazar con pesos de Colab (PKLot completo)
+
+Si entrenaste en Colab con el notebook y quieres esos pesos exactos, exporta las capas con un script compatible y sustituye `weights.bin` + `weights_manifest.json`.

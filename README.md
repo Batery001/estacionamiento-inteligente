@@ -21,16 +21,21 @@ Sistema de **gestión inteligente de estacionamientos** (Proyecto 4) basado en V
 | F1-Score | 90.87% |
 | Tiempo entrenamiento | 17.92 min |
 
-## Conectar la CNN a la web (cerebro del proyecto)
+## Motor CNN (todo en la página)
 
-La interfaz usa **TensorFlow.js** con el modelo exportado desde Colab.
+La web incluye la **CNN embebida** en `public/models/parking/`. No necesitas Colab para usar la demo:
 
-1. Entrena en Colab (`notebooks/Hito5-6-CNN.ipynb` — celdas 1 y 2).
-2. Ejecuta la **celda 3** (exportar a TensorFlow.js).
-3. Descarga `parking_tfjs.zip` y copia su contenido a `public/models/parking/`.
-4. `git push` → Vercel redeploya con la CNN activa.
+- `weights_manifest.json` + `weights.bin` — pesos de la red
+- `lib/cnnArchitecture.ts` — misma arquitectura que el notebook
+- Inferencia con **TensorFlow.js** en el navegador
 
-Ver detalle en [`public/models/parking/README.md`](public/models/parking/README.md).
+Regenerar pesos localmente:
+
+```bash
+python scripts/train_and_export.py
+```
+
+El notebook en `notebooks/` es para entrenamiento avanzado con PKLot completo en Colab.
 
 ## Desarrollo local
 
@@ -60,9 +65,9 @@ vercel
 
 El modelo CNN se entrena en Google Colab con el notebook incluido. Requiere `kaggle.json` para descargar PKLot.
 
-## Nota sobre inferencia
+## Inferencia
 
-La web ejecuta la **misma CNN** entrenada en el notebook, convertida a TensorFlow.js. Sin los archivos del modelo en `public/models/parking/`, la demo mostrará instrucciones para exportarlos desde Colab.
+La página ejecuta la **CNN en el navegador** (TensorFlow.js) con pesos incluidos en el repositorio. No requiere Colab ni backend externo.
 
 ## Equipo
 
