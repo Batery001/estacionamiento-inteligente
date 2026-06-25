@@ -197,16 +197,16 @@ export function ImageDetector() {
       <div className="grid gap-4 md:grid-cols-3">
         <div className="glass rounded-xl border-l-4 border-emerald-500 p-4">
           <p className="text-sm font-semibold text-emerald-300">Disponible</p>
-          <p className="mt-1 text-xs text-slate-400">Marco verde — espacio libre</p>
+          <p className="mt-1 text-xs text-slate-400">Marco verde por espacio libre</p>
         </div>
         <div className="glass rounded-xl border-l-4 border-red-500 p-4">
           <p className="text-sm font-semibold text-red-300">No disponible</p>
-          <p className="mt-1 text-xs text-slate-400">Marco rojo — espacio ocupado</p>
+          <p className="mt-1 text-xs text-slate-400">Marco rojo solo con vehículo</p>
         </div>
         <div className="glass rounded-xl border-l-4 border-sky-500 p-4">
           <p className="text-sm font-semibold text-sky-300">Vista aérea</p>
           <p className="mt-1 text-xs text-slate-400">
-            Foto completa del lote → detecta todos los espacios
+            Cuadrícula fina: ~1 celda = 1 espacio
           </p>
         </div>
       </div>

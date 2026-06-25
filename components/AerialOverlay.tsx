@@ -11,7 +11,7 @@ export function AerialOverlay({
   result: AerialResult;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const maxW = 640;
+  const maxW = 680;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -30,21 +30,36 @@ export function AerialOverlay({
 
       ctx.drawImage(img, 0, 0, dw, dh);
 
+      const lineW = Math.max(1, 1.5 * scale);
+
+      // Primero vacíos (verde) — resaltar espacios disponibles
       for (const slot of result.slots) {
-        const occupied = slot.label === "Occupied";
+        if (slot.label !== "Empty") continue;
         const x = slot.x * scale;
         const y = slot.y * scale;
         const w = slot.width * scale;
         const h = slot.height * scale;
 
-        ctx.strokeStyle = occupied ? "#ef4444" : "#22c55e";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, w, h);
-
-        ctx.fillStyle = occupied
-          ? "rgba(239, 68, 68, 0.25)"
-          : "rgba(34, 197, 94, 0.25)";
+        ctx.fillStyle = "rgba(34, 197, 94, 0.22)";
         ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = "#22c55e";
+        ctx.lineWidth = lineW;
+        ctx.strokeRect(x + lineW / 2, y + lineW / 2, w - lineW, h - lineW);
+      }
+
+      // Luego ocupados (rojo) encima
+      for (const slot of result.slots) {
+        if (slot.label !== "Occupied") continue;
+        const x = slot.x * scale;
+        const y = slot.y * scale;
+        const w = slot.width * scale;
+        const h = slot.height * scale;
+
+        ctx.fillStyle = "rgba(239, 68, 68, 0.35)";
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = lineW + 0.5;
+        ctx.strokeRect(x + lineW / 2, y + lineW / 2, w - lineW, h - lineW);
       }
     };
     img.src = imageUrl;
@@ -54,7 +69,7 @@ export function AerialOverlay({
     <canvas
       ref={canvasRef}
       className="max-w-full rounded-xl"
-      aria-label="Mapa de espacios detectados"
+      aria-label="Espacios vacíos en verde y ocupados en rojo"
     />
   );
 }
