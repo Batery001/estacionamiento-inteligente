@@ -21,6 +21,17 @@ Sistema de **gestión inteligente de estacionamientos** (Proyecto 4) basado en V
 | F1-Score | 90.87% |
 | Tiempo entrenamiento | 17.92 min |
 
+## Conectar la CNN a la web (cerebro del proyecto)
+
+La interfaz usa **TensorFlow.js** con el modelo exportado desde Colab.
+
+1. Entrena en Colab (`notebooks/Hito5-6-CNN.ipynb` — celdas 1 y 2).
+2. Ejecuta la **celda 3** (exportar a TensorFlow.js).
+3. Descarga `parking_tfjs.zip` y copia su contenido a `public/models/parking/`.
+4. `git push` → Vercel redeploya con la CNN activa.
+
+Ver detalle en [`public/models/parking/README.md`](public/models/parking/README.md).
+
 ## Desarrollo local
 
 ```bash
@@ -49,9 +60,9 @@ vercel
 
 El modelo CNN se entrena en Google Colab con el notebook incluido. Requiere `kaggle.json` para descargar PKLot.
 
-## Nota sobre la demo web
+## Nota sobre inferencia
 
-La interfaz en Vercel incluye una **demo en navegador** para probar la carga de imágenes. Las métricas mostradas provienen del entrenamiento real en el notebook. Para producción se integraría el modelo exportado (`.h5` / TF.js) vía API de inferencia.
+La web ejecuta la **misma CNN** entrenada en el notebook, convertida a TensorFlow.js. Sin los archivos del modelo en `public/models/parking/`, la demo mostrará instrucciones para exportarlos desde Colab.
 
 ## Equipo
 

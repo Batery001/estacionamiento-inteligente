@@ -27,8 +27,12 @@ next-env.d.ts
 __pycache__/
 *.pyc
 .venv/
-kaggle.json
+# Modelo exportado (archivos grandes — subir manualmente desde Colab)
+public/models/parking/*
+!public/models/parking/README.md
 
 # ide
 .idea/
 .vscode/
+
+.vercel
