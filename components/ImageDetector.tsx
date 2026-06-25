@@ -156,13 +156,15 @@ export function ImageDetector() {
               `${width}×${height} px — ${aerial.total} espacios (XML PKLot)`,
             );
           } else {
-            setMeta(`${width}×${height} px — cuadrícula estimada`);
+            setMeta(`${width}×${height} px — detección automática`);
             const aerial = await predictAerialLot(file, (done, total) => {
-              setProgress(`CNN por celda: ${done}/${total}`);
+              setProgress(`CNN por espacio: ${done}/${total}`);
             });
             setAerialResult(aerial);
             setMeta(
-              `${width}×${height} px — ${aerial.grid?.cols}×${aerial.grid?.rows} celdas (sin XML)`,
+              aerial.mode === "auto"
+                ? `${width}×${height} px — ${aerial.total} espacios (auto)`
+                : `${width}×${height} px — ${aerial.grid?.cols}×${aerial.grid?.rows} celdas (respaldo)`,
             );
           }
         } else {
@@ -267,17 +269,17 @@ export function ImageDetector() {
           <p className="mt-1 text-xs text-slate-400">Marco rojo solo con vehículo</p>
         </div>
         <div className="glass rounded-xl border-l-4 border-sky-500 p-4">
-          <p className="text-sm font-semibold text-sky-300">PKLot (recomendado)</p>
+          <p className="text-sm font-semibold text-sky-300">Vista aérea</p>
           <p className="mt-1 text-xs text-slate-400">
-            Imagen + XML → un polígono por espacio
+            Detecta espacios por líneas del asfalto (o XML PKLot)
           </p>
         </div>
       </div>
 
       <div className="glass flex flex-wrap items-center gap-3 rounded-xl p-4 text-sm">
         <span className="text-slate-300">
-          Vista aérea PKLot: sube el <code className="text-parking-300">.jpg</code> y
-          su <code className="text-parking-300">.xml</code> (misma carpeta en Kaggle).
+          Vista aérea: los cuadros se ajustan solos a las líneas del lote. Opcional:
+          sube el <code className="text-parking-300">.xml</code> PKLot para máxima precisión.
         </span>
         <button
           type="button"
@@ -329,7 +331,7 @@ export function ImageDetector() {
                 Sube foto aérea o recorte de un espacio
               </p>
               <p className="mt-2 max-w-sm text-center text-sm text-slate-400">
-                Imagen aérea + XML PKLot, o recorte de un espacio
+                Foto aérea (auto) o recorte de un espacio. XML opcional.
               </p>
             </>
           ) : aerialResult && preview ? (
@@ -388,11 +390,13 @@ export function ImageDetector() {
               <div className="inline-flex rounded-full bg-parking-500/20 px-3 py-1 text-xs text-parking-300">
                 {aerialResult.mode === "pklot"
                   ? "Modo PKLot · CNN por espacio (XML)"
-                  : "Modo estimado · CNN por celda (sin XML)"}
+                  : aerialResult.mode === "auto"
+                    ? "Modo automático · CNN ajustada a líneas del lote"
+                    : "Modo respaldo · cuadrícula fija"}
               </div>
               {aerialResult.mode === "grid" && (
                 <p className="text-xs text-amber-200/80">
-                  Sube el XML del dataset para encasillar cada espacio como en PKLot.
+                  No se detectaron bien las líneas. Prueba otra foto o sube el XML PKLot.
                 </p>
               )}
               <div className="grid grid-cols-3 gap-3 text-center">
