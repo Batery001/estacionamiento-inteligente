@@ -77,8 +77,12 @@ export default function Home() {
 
         <section id="demo" className="mb-20">
           <h2 className="mb-2 text-2xl font-bold">Demo de detección</h2>
-          <p className="mb-8 text-slate-400">
-            Interfaz para cargar imágenes y visualizar el resultado de clasificación.
+          <p className="mb-8 max-w-3xl text-slate-400">
+            Sube un <strong className="text-slate-200">recorte de un solo espacio</strong>{" "}
+            (como en PKLot). El sistema lo encasilla en{" "}
+            <span className="text-emerald-400">verde</span> si está disponible o en{" "}
+            <span className="text-red-400">rojo</span> si está ocupado. No uses fotos
+            aéreas del estacionamiento completo.
           </p>
           <ImageDetector />
         </section>
