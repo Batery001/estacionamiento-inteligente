@@ -6,6 +6,7 @@ import {
   getModelInfo,
   loadCnnModel,
   predictAerialLot,
+  predictPklotFromXml,
   predictParkingSpot,
   type AerialResult,
   type PredictionResult,
@@ -98,7 +99,10 @@ function ModelStatusBanner({
 
 export function ImageDetector() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const xmlInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [xmlName, setXmlName] = useState<string | null>(null);
+  const pendingXmlRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [result, setResult] = useState<PredictionResult | null>(null);
@@ -116,8 +120,8 @@ export function ImageDetector() {
     });
   }, []);
 
-  const handleFile = useCallback(
-    async (file: File) => {
+  const processImage = useCallback(
+    async (file: File, xmlText?: string | null) => {
       if (modelStatus !== "ready") {
         setError("La CNN aún no está cargada.");
         return;
@@ -142,14 +146,25 @@ export function ImageDetector() {
         setViewMode(mode);
 
         if (mode === "aerial") {
-          setMeta(`${width}×${height} px — vista aérea`);
-          const aerial = await predictAerialLot(file, (done, total) => {
-            setProgress(`Analizando espacios: ${done}/${total}`);
-          });
-          setAerialResult(aerial);
-          setMeta(
-            `${width}×${height} px — ${aerial.grid.cols}×${aerial.grid.rows} espacios`,
-          );
+          if (xmlText) {
+            setMeta(`${width}×${height} px — modo PKLot (XML)`);
+            const aerial = await predictPklotFromXml(file, xmlText, (done, total) => {
+              setProgress(`CNN por espacio PKLot: ${done}/${total}`);
+            });
+            setAerialResult(aerial);
+            setMeta(
+              `${width}×${height} px — ${aerial.total} espacios (XML PKLot)`,
+            );
+          } else {
+            setMeta(`${width}×${height} px — cuadrícula estimada`);
+            const aerial = await predictAerialLot(file, (done, total) => {
+              setProgress(`CNN por celda: ${done}/${total}`);
+            });
+            setAerialResult(aerial);
+            setMeta(
+              `${width}×${height} px — ${aerial.grid?.cols}×${aerial.grid?.rows} celdas (sin XML)`,
+            );
+          }
         } else {
           const validation = await validateSingleSpotCrop(file);
           if (!validation.ok) {
@@ -157,7 +172,7 @@ export function ImageDetector() {
             setMeta(`${width}×${height} px`);
             return;
           }
-          setMeta(`${width}×${height} px — recorte individual`);
+          setMeta(`${width}×${height} px — recorte PKLotSegmented`);
           const prediction = await predictParkingSpot(file);
           setResult(prediction);
         }
@@ -166,6 +181,10 @@ export function ImageDetector() {
         if (msg === "MODEL_NOT_LOADED") {
           setError("No se pudo cargar la CNN.");
           setModelStatus("missing");
+        } else if (msg === "XML_INVALID" || msg === "XML_NO_SPACES") {
+          setError(
+            "XML PKLot no válido. Debe contener etiquetas <space> con <contour> y puntos.",
+          );
         } else {
           setError("No se pudo analizar la imagen.");
         }
@@ -177,6 +196,49 @@ export function ImageDetector() {
     [modelStatus],
   );
 
+  const handleFile = useCallback(
+    async (file: File) => {
+      await processImage(file, pendingXmlRef.current);
+    },
+    [processImage],
+  );
+
+  const handleXmlFile = useCallback(
+    async (file: File) => {
+      const text = await file.text();
+      pendingXmlRef.current = text;
+      setXmlName(file.name);
+    },
+    [],
+  );
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      if (modelStatus !== "ready" || loading) return;
+
+      const files = Array.from(e.dataTransfer.files);
+      const image = files.find((f) => f.type.startsWith("image/"));
+      const xml = files.find(
+        (f) =>
+          f.name.toLowerCase().endsWith(".xml") ||
+          f.type === "text/xml" ||
+          f.type === "application/xml",
+      );
+
+      let xmlText = pendingXmlRef.current;
+      if (xml) {
+        xmlText = await xml.text();
+        pendingXmlRef.current = xmlText;
+        setXmlName(xml.name);
+      }
+      if (image) await processImage(image, xmlText);
+    },
+    [loading, modelStatus, processImage],
+  );
+
+  const canUpload = modelStatus === "ready" && !loading;
+
   const reset = () => {
     setPreview(null);
     setResult(null);
@@ -185,10 +247,11 @@ export function ImageDetector() {
     setError(null);
     setMeta(null);
     setProgress(null);
+    setXmlName(null);
+    pendingXmlRef.current = null;
     if (inputRef.current) inputRef.current.value = "";
+    if (xmlInputRef.current) xmlInputRef.current.value = "";
   };
-
-  const canUpload = modelStatus === "ready" && !loading;
 
   return (
     <div className="space-y-6">
@@ -204,11 +267,36 @@ export function ImageDetector() {
           <p className="mt-1 text-xs text-slate-400">Marco rojo solo con vehículo</p>
         </div>
         <div className="glass rounded-xl border-l-4 border-sky-500 p-4">
-          <p className="text-sm font-semibold text-sky-300">Vista aérea</p>
+          <p className="text-sm font-semibold text-sky-300">PKLot (recomendado)</p>
           <p className="mt-1 text-xs text-slate-400">
-            Cuadrícula fina: ~1 celda = 1 espacio
+            Imagen + XML → un polígono por espacio
           </p>
         </div>
+      </div>
+
+      <div className="glass flex flex-wrap items-center gap-3 rounded-xl p-4 text-sm">
+        <span className="text-slate-300">
+          Vista aérea PKLot: sube el <code className="text-parking-300">.jpg</code> y
+          su <code className="text-parking-300">.xml</code> (misma carpeta en Kaggle).
+        </span>
+        <button
+          type="button"
+          disabled={!canUpload}
+          onClick={() => xmlInputRef.current?.click()}
+          className="rounded-lg bg-parking-500/20 px-3 py-1.5 text-xs text-parking-200 hover:bg-parking-500/30 disabled:opacity-50"
+        >
+          {xmlName ? `XML: ${xmlName}` : "Seleccionar XML PKLot"}
+        </button>
+        <input
+          ref={xmlInputRef}
+          type="file"
+          accept=".xml,text/xml,application/xml"
+          className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (file) await handleXmlFile(file);
+          }}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -220,10 +308,7 @@ export function ImageDetector() {
           }`}
           onClick={() => canUpload && inputRef.current?.click()}
           onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            if (canUpload && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
-          }}
+          onDrop={handleDrop}
         >
           <input
             ref={inputRef}
@@ -244,7 +329,7 @@ export function ImageDetector() {
                 Sube foto aérea o recorte de un espacio
               </p>
               <p className="mt-2 max-w-sm text-center text-sm text-slate-400">
-                La CNN encasilla cada espacio en verde o rojo
+                Imagen aérea + XML PKLot, o recorte de un espacio
               </p>
             </>
           ) : aerialResult && preview ? (
@@ -301,8 +386,15 @@ export function ImageDetector() {
           {!loading && aerialResult && (
             <div className="mt-6 space-y-4">
               <div className="inline-flex rounded-full bg-parking-500/20 px-3 py-1 text-xs text-parking-300">
-                Modo aéreo · CNN por celda
+                {aerialResult.mode === "pklot"
+                  ? "Modo PKLot · CNN por espacio (XML)"
+                  : "Modo estimado · CNN por celda (sin XML)"}
               </div>
+              {aerialResult.mode === "grid" && (
+                <p className="text-xs text-amber-200/80">
+                  Sube el XML del dataset para encasillar cada espacio como en PKLot.
+                </p>
+              )}
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div className="rounded-lg bg-emerald-500/10 p-3">
                   <p className="text-2xl font-bold text-emerald-400">

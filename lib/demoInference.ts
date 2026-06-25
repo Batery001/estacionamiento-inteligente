@@ -11,4 +11,4 @@ export async function predictParkingSpot(file: File): Promise<PredictionResult> 
   return predictWithCnn(file);
 }
 
-export { predictAerialLot, loadCnnModel, isCnnLoaded, isCnnModelAvailable, getModelInfo } from "@/lib/cnnInference";
+export { predictAerialLot, predictPklotFromXml, loadCnnModel, isCnnLoaded, isCnnModelAvailable, getModelInfo } from "@/lib/cnnInference";

@@ -6,6 +6,8 @@ import {
 } from "@/lib/detectAerial";
 import { preprocessCellImageData } from "@/lib/cnnPreprocess";
 
+import { parsePklotXml } from "@/lib/pklotXml";
+
 export type PredictionResult = {
   label: "Occupied" | "Empty";
   confidence: number;
@@ -20,6 +22,8 @@ export type SlotDetection = {
   height: number;
   label: "Occupied" | "Empty";
   confidence: number;
+  id?: number;
+  polygon?: { x: number; y: number }[];
 };
 
 export type AerialResult = {
@@ -29,7 +33,8 @@ export type AerialResult = {
   total: number;
   imageWidth: number;
   imageHeight: number;
-  grid: GridLayout;
+  mode: "pklot" | "grid";
+  grid?: GridLayout;
 };
 
 export type ModelInfo = {
@@ -261,6 +266,68 @@ export async function predictAerialLot(
     total: slots.length,
     imageWidth: width,
     imageHeight: height,
+    mode: "grid",
     grid,
+  };
+}
+
+export async function predictPklotFromXml(
+  imageFile: File,
+  xmlText: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<AerialResult> {
+  const ready = await loadCnnModel();
+  if (!ready || !model) throw new Error("MODEL_NOT_LOADED");
+
+  const tf = await getTf();
+  const bitmap = await createImageBitmap(imageFile);
+  const { width, height } = bitmap;
+  const spaces = parsePklotXml(xmlText);
+  const slots: SlotDetection[] = [];
+  const total = spaces.length;
+
+  for (let i = 0; i < total; i += BATCH_SIZE) {
+    const batch = spaces.slice(i, i + BATCH_SIZE);
+    const batchTensors = batch.map((space) => {
+      const { x, y, width: w, height: h } = space.bbox;
+      return preprocessImageData(
+        tf,
+        cropCell(bitmap, width, height, x, y, w, h),
+      );
+    });
+
+    const batchInput = tf.concat(batchTensors) as import("@tensorflow/tfjs").Tensor4D;
+    batchTensors.forEach((t) => t.dispose());
+
+    const scores = await predictTensor(batchInput);
+
+    batch.forEach((space, j) => {
+      const { label, confidence } = scoreToResult(scores[j]);
+      slots.push({
+        x: space.bbox.x,
+        y: space.bbox.y,
+        width: space.bbox.width,
+        height: space.bbox.height,
+        label,
+        confidence,
+        id: space.id,
+        polygon: space.points,
+      });
+    });
+
+    onProgress?.(Math.min(i + BATCH_SIZE, total), total);
+  }
+
+  const available = slots.filter((s) => s.label === "Empty").length;
+  const occupied = slots.filter((s) => s.label === "Occupied").length;
+
+  return {
+    slots,
+    available,
+    occupied,
+    total: slots.length,
+    imageWidth: width,
+    imageHeight: height,
+    mode: "pklot",
   };
 }

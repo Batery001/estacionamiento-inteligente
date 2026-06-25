@@ -29,37 +29,45 @@ export function AerialOverlay({
       if (!ctx) return;
 
       ctx.drawImage(img, 0, 0, dw, dh);
-
       const lineW = Math.max(1, 1.5 * scale);
 
-      // Primero vacíos (verde) — resaltar espacios disponibles
-      for (const slot of result.slots) {
-        if (slot.label !== "Empty") continue;
-        const x = slot.x * scale;
-        const y = slot.y * scale;
-        const w = slot.width * scale;
-        const h = slot.height * scale;
+      const drawSlot = (slot: (typeof result.slots)[0]) => {
+        const occupied = slot.label === "Occupied";
+        const stroke = occupied ? "#ef4444" : "#22c55e";
+        const fill = occupied
+          ? "rgba(239, 68, 68, 0.3)"
+          : "rgba(34, 197, 94, 0.2)";
 
-        ctx.fillStyle = "rgba(34, 197, 94, 0.22)";
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeStyle = "#22c55e";
-        ctx.lineWidth = lineW;
-        ctx.strokeRect(x + lineW / 2, y + lineW / 2, w - lineW, h - lineW);
+        ctx!.fillStyle = fill;
+        ctx!.strokeStyle = stroke;
+        ctx!.lineWidth = lineW;
+
+        if (slot.polygon && slot.polygon.length >= 3) {
+          ctx!.beginPath();
+          slot.polygon.forEach((p, i) => {
+            const px = p.x * scale;
+            const py = p.y * scale;
+            if (i === 0) ctx!.moveTo(px, py);
+            else ctx!.lineTo(px, py);
+          });
+          ctx!.closePath();
+          ctx!.fill();
+          ctx!.stroke();
+        } else {
+          const x = slot.x * scale;
+          const y = slot.y * scale;
+          const w = slot.width * scale;
+          const h = slot.height * scale;
+          ctx!.fillRect(x, y, w, h);
+          ctx!.strokeRect(x + lineW / 2, y + lineW / 2, w - lineW, h - lineW);
+        }
+      };
+
+      for (const slot of result.slots) {
+        if (slot.label === "Empty") drawSlot(slot);
       }
-
-      // Luego ocupados (rojo) encima
       for (const slot of result.slots) {
-        if (slot.label !== "Occupied") continue;
-        const x = slot.x * scale;
-        const y = slot.y * scale;
-        const w = slot.width * scale;
-        const h = slot.height * scale;
-
-        ctx.fillStyle = "rgba(239, 68, 68, 0.35)";
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeStyle = "#ef4444";
-        ctx.lineWidth = lineW + 0.5;
-        ctx.strokeRect(x + lineW / 2, y + lineW / 2, w - lineW, h - lineW);
+        if (slot.label === "Occupied") drawSlot(slot);
       }
     };
     img.src = imageUrl;
@@ -69,7 +77,7 @@ export function AerialOverlay({
     <canvas
       ref={canvasRef}
       className="max-w-full rounded-xl"
-      aria-label="Espacios vacíos en verde y ocupados en rojo"
+      aria-label="Espacios PKLot: verde disponible, rojo ocupado"
     />
   );
 }
