@@ -1,14 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AerialOverlay } from "@/components/AerialOverlay";
 import {
   loadCnnModel,
+  predictAerialLot,
   predictParkingSpot,
+  type AerialResult,
   type PredictionResult,
 } from "@/lib/demoInference";
+import { getImageDimensions, getImageMode } from "@/lib/detectAerial";
 import { validateSingleSpotCrop } from "@/lib/validateCrop";
 
 type ModelStatus = "loading" | "ready" | "missing";
+type ViewMode = "single" | "aerial";
 
 function SpotFrame({
   preview,
@@ -28,46 +33,20 @@ function SpotFrame({
             : "shadow-lg shadow-emerald-500/40 ring-4 ring-emerald-500"
         }`}
       >
-        <span
-          className="pointer-events-none absolute -left-1 -top-1 h-6 w-6 border-l-4 border-t-4"
-          style={{ borderColor: occupied ? "#f87171" : "#34d399" }}
-        />
-        <span
-          className="pointer-events-none absolute -right-1 -top-1 h-6 w-6 border-r-4 border-t-4"
-          style={{ borderColor: occupied ? "#f87171" : "#34d399" }}
-        />
-        <span
-          className="pointer-events-none absolute -bottom-1 -left-1 h-6 w-6 border-b-4 border-l-4"
-          style={{ borderColor: occupied ? "#f87171" : "#34d399" }}
-        />
-        <span
-          className="pointer-events-none absolute -bottom-1 -right-1 h-6 w-6 border-b-4 border-r-4"
-          style={{ borderColor: occupied ? "#f87171" : "#34d399" }}
-        />
-
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={preview}
           alt="Recorte del espacio"
           className="max-h-56 max-w-full rounded-lg object-contain"
         />
-
         <div
-          className={`absolute left-2 top-2 rounded-md px-2 py-1 text-xs font-bold uppercase tracking-wide ${
+          className={`absolute left-2 top-2 rounded-md px-2 py-1 text-xs font-bold uppercase ${
             occupied ? "bg-red-600 text-white" : "bg-emerald-600 text-white"
           }`}
         >
           {occupied ? "No disponible" : "Disponible"}
         </div>
       </div>
-
-      <p
-        className={`text-sm font-medium ${occupied ? "text-red-300" : "text-emerald-300"}`}
-      >
-        {occupied
-          ? "Espacio ocupado — marcado en rojo"
-          : "Espacio libre — marcado en verde"}
-      </p>
     </div>
   );
 }
@@ -77,29 +56,24 @@ function ModelStatusBanner({ status }: { status: ModelStatus }) {
     return (
       <div className="flex items-center gap-3 rounded-xl border border-parking-500/30 bg-parking-500/10 p-4 text-sm text-parking-200">
         <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-parking-400 border-t-transparent" />
-        Cargando cerebro CNN entrenado…
+        Cargando cerebro CNN…
       </div>
     );
   }
-
   if (status === "ready") {
     return (
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">
-        <span className="font-semibold">CNN activa</span> — motor embebido en la
-        página (TensorFlow.js). Sin Colab.
+        <span className="font-semibold">CNN activa</span> — modo recorte o vista
+        aérea con detección múltiple.
       </div>
     );
   }
-
   return (
     <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
       <p className="font-semibold">Motor CNN no cargado</p>
-      <p className="mt-2 text-amber-200/90">
-        Faltan los pesos en{" "}
-        <code className="rounded bg-black/20 px-1">public/models/parking/</code>.
-        Ejecuta{" "}
-        <code className="rounded bg-black/20 px-1">python scripts/train_and_export.py</code>{" "}
-        o haz push del repo con los archivos incluidos.
+      <p className="mt-2">
+        Faltan pesos en{" "}
+        <code className="rounded bg-black/20 px-1">public/models/parking/</code>
       </p>
     </div>
   );
@@ -109,9 +83,12 @@ export function ImageDetector() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   const [result, setResult] = useState<PredictionResult | null>(null);
+  const [aerialResult, setAerialResult] = useState<AerialResult | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [cropInfo, setCropInfo] = useState<string | null>(null);
+  const [meta, setMeta] = useState<string | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatus>("loading");
 
   useEffect(() => {
@@ -121,12 +98,9 @@ export function ImageDetector() {
   const handleFile = useCallback(
     async (file: File) => {
       if (modelStatus !== "ready") {
-        setError(
-          "La CNN aún no está cargada. Verifica que weights.bin esté en public/models/parking/.",
-        );
+        setError("La CNN aún no está cargada.");
         return;
       }
-
       if (!file.type.startsWith("image/")) {
         setError("Solo se permiten archivos de imagen.");
         return;
@@ -134,56 +108,62 @@ export function ImageDetector() {
 
       setError(null);
       setResult(null);
-      setCropInfo(null);
+      setAerialResult(null);
+      setProgress(null);
+      setViewMode(null);
 
       try {
-        const validation = await validateSingleSpotCrop(file);
-        if (!validation.ok) {
-          setPreview(URL.createObjectURL(file));
-          setError(validation.reason ?? "Recorte no válido.");
-          setCropInfo(`${validation.width}×${validation.height} px`);
-          return;
-        }
-
-        setCropInfo(
-          `${validation.width}×${validation.height} px — recorte válido`,
-        );
-        setPreview(URL.createObjectURL(file));
+        const { width, height } = await getImageDimensions(file);
+        const mode = getImageMode(width, height);
+        const url = URL.createObjectURL(file);
+        setPreview(url);
         setLoading(true);
+        setViewMode(mode);
 
-        const prediction = await predictParkingSpot(file);
-        setResult(prediction);
+        if (mode === "aerial") {
+          setMeta(`${width}×${height} px — vista aérea`);
+          const aerial = await predictAerialLot(file, (done, total) => {
+            setProgress(`Analizando espacios: ${done}/${total}`);
+          });
+          setAerialResult(aerial);
+          setMeta(
+            `${width}×${height} px — ${aerial.grid.cols}×${aerial.grid.rows} espacios`,
+          );
+        } else {
+          const validation = await validateSingleSpotCrop(file);
+          if (!validation.ok) {
+            setError(validation.reason ?? "Recorte no válido.");
+            setMeta(`${width}×${height} px`);
+            return;
+          }
+          setMeta(`${width}×${height} px — recorte individual`);
+          const prediction = await predictParkingSpot(file);
+          setResult(prediction);
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
         if (msg === "MODEL_NOT_LOADED") {
-          setError(
-            "No se pudo cargar la CNN. Verifica weights_manifest.json y weights.bin.",
-          );
+          setError("No se pudo cargar la CNN.");
           setModelStatus("missing");
         } else {
-          setError("No se pudo analizar la imagen con la CNN.");
+          setError("No se pudo analizar la imagen.");
         }
       } finally {
         setLoading(false);
+        setProgress(null);
       }
     },
     [modelStatus],
   );
 
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      const file = e.dataTransfer.files[0];
-      if (file) handleFile(file);
-    },
-    [handleFile],
-  );
-
   const reset = () => {
     setPreview(null);
     setResult(null);
+    setAerialResult(null);
+    setViewMode(null);
     setError(null);
-    setCropInfo(null);
+    setMeta(null);
+    setProgress(null);
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -196,53 +176,33 @@ export function ImageDetector() {
       <div className="grid gap-4 md:grid-cols-3">
         <div className="glass rounded-xl border-l-4 border-emerald-500 p-4">
           <p className="text-sm font-semibold text-emerald-300">Disponible</p>
-          <p className="mt-1 text-xs text-slate-400">
-            Recorte vacío → marco verde (CNN)
-          </p>
+          <p className="mt-1 text-xs text-slate-400">Marco verde — espacio libre</p>
         </div>
         <div className="glass rounded-xl border-l-4 border-red-500 p-4">
           <p className="text-sm font-semibold text-red-300">No disponible</p>
-          <p className="mt-1 text-xs text-slate-400">
-            Recorte con vehículo → marco rojo (CNN)
-          </p>
+          <p className="mt-1 text-xs text-slate-400">Marco rojo — espacio ocupado</p>
         </div>
-        <div className="glass rounded-xl border-l-4 border-amber-500 p-4">
-          <p className="text-sm font-semibold text-amber-300">Solo 1 espacio</p>
+        <div className="glass rounded-xl border-l-4 border-sky-500 p-4">
+          <p className="text-sm font-semibold text-sky-300">Vista aérea</p>
           <p className="mt-1 text-xs text-slate-400">
-            Recorte cuadrado PKLot, no vista aérea completa
+            Foto completa del lote → detecta todos los espacios
           </p>
-        </div>
-      </div>
-
-      <div className="glass rounded-xl p-4 text-sm text-slate-300">
-        <p className="font-medium text-white">¿Qué imagen subir?</p>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <div className="rounded-lg bg-emerald-500/10 p-3">
-            <p className="font-medium text-emerald-300">Correcto</p>
-            <p className="mt-1 text-xs text-slate-400">
-              Un recorte cuadrado de <strong>un solo slot</strong>, como en PKLot
-              (64×64 px).
-            </p>
-          </div>
-          <div className="rounded-lg bg-red-500/10 p-3">
-            <p className="font-medium text-red-300">Incorrecto</p>
-            <p className="mt-1 text-xs text-slate-400">
-              Vista aérea de todo el estacionamiento.
-            </p>
-          </div>
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div
-          className={`glass flex min-h-[340px] flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 transition ${
+          className={`glass flex min-h-[360px] flex-col items-center justify-center rounded-2xl border-2 border-dashed p-4 transition ${
             canUpload
               ? "cursor-pointer border-white/20 hover:border-parking-400/50"
               : "cursor-not-allowed border-white/10 opacity-80"
           }`}
           onClick={() => canUpload && inputRef.current?.click()}
           onDragOver={(e) => e.preventDefault()}
-          onDrop={canUpload ? onDrop : undefined}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (canUpload && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+          }}
         >
           <input
             ref={inputRef}
@@ -258,26 +218,24 @@ export function ImageDetector() {
 
           {!preview ? (
             <>
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-parking-500/20 text-3xl">
-                🧠
-              </div>
+              <div className="mb-4 text-4xl">🅿️</div>
               <p className="text-center text-lg font-medium">
-                Sube un recorte para la CNN
+                Sube foto aérea o recorte de un espacio
               </p>
-              <p className="mt-2 max-w-xs text-center text-sm text-slate-400">
-                La red neuronal clasifica ocupado vs vacío
+              <p className="mt-2 max-w-sm text-center text-sm text-slate-400">
+                La CNN encasilla cada espacio en verde o rojo
               </p>
             </>
-          ) : result ? (
+          ) : aerialResult && preview ? (
+            <AerialOverlay imageUrl={preview} result={aerialResult} />
+          ) : result && preview ? (
             <SpotFrame preview={preview} result={result} />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={preview}
               alt="Vista previa"
-              className={`max-h-56 rounded-xl object-contain ${
-                error ? "opacity-60 ring-2 ring-amber-500" : ""
-              }`}
+              className={`max-h-64 rounded-xl object-contain ${error ? "opacity-60" : ""}`}
             />
           )}
 
@@ -297,32 +255,65 @@ export function ImageDetector() {
 
         <div className="glass flex flex-col justify-center rounded-2xl p-8">
           <h3 className="text-lg font-semibold">Resultado</h3>
-
-          {cropInfo && (
-            <p className="mt-2 font-mono text-xs text-slate-500">{cropInfo}</p>
+          {meta && (
+            <p className="mt-2 font-mono text-xs text-slate-500">{meta}</p>
           )}
 
           {loading && (
-            <div className="mt-6 flex items-center gap-3 text-slate-300">
-              <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-parking-400 border-t-transparent" />
-              CNN analizando recorte…
+            <div className="mt-6 space-y-2">
+              <div className="flex items-center gap-3 text-slate-300">
+                <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-parking-400 border-t-transparent" />
+                {viewMode === "aerial"
+                  ? progress ?? "Escaneando estacionamiento…"
+                  : "CNN analizando recorte…"}
+              </div>
             </div>
           )}
 
           {error && (
             <div className="mt-4 rounded-lg bg-amber-500/10 p-4 text-sm text-amber-200">
-              <p className="font-semibold">
-                {modelStatus === "missing" ? "CNN no disponible" : "Imagen no aceptada"}
-              </p>
+              <p className="font-semibold">No se pudo procesar</p>
               <p className="mt-1">{error}</p>
+            </div>
+          )}
+
+          {!loading && aerialResult && (
+            <div className="mt-6 space-y-4">
+              <div className="inline-flex rounded-full bg-parking-500/20 px-3 py-1 text-xs text-parking-300">
+                Modo aéreo · CNN por celda
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="rounded-lg bg-emerald-500/10 p-3">
+                  <p className="text-2xl font-bold text-emerald-400">
+                    {aerialResult.available}
+                  </p>
+                  <p className="text-xs text-slate-400">Disponibles</p>
+                </div>
+                <div className="rounded-lg bg-red-500/10 p-3">
+                  <p className="text-2xl font-bold text-red-400">
+                    {aerialResult.occupied}
+                  </p>
+                  <p className="text-xs text-slate-400">Ocupados</p>
+                </div>
+                <div className="rounded-lg bg-slate-700/50 p-3">
+                  <p className="text-2xl font-bold text-white">
+                    {aerialResult.total}
+                  </p>
+                  <p className="text-xs text-slate-400">Detectados</p>
+                </div>
+              </div>
+              <p className="text-sm text-slate-400">
+                Utilización:{" "}
+                <span className="text-white">
+                  {((aerialResult.occupied / aerialResult.total) * 100).toFixed(1)}%
+                </span>
+              </p>
             </div>
           )}
 
           {!loading && result && (
             <div className="mt-6">
-              <div className="mb-3 inline-flex rounded-full bg-parking-500/20 px-3 py-1 text-xs font-medium text-parking-300">
-                Inferencia: CNN · TensorFlow.js
-              </div>
+              <div className="mb-3 text-xs text-parking-300">Modo recorte individual</div>
               <div
                 className={`inline-flex rounded-full px-4 py-2 text-sm font-bold ${
                   result.label === "Occupied"
@@ -332,17 +323,17 @@ export function ImageDetector() {
               >
                 {result.label === "Occupied" ? "NO DISPONIBLE" : "DISPONIBLE"}
               </div>
-              <p className="mt-4 text-4xl font-bold text-white">
+              <p className="mt-4 text-4xl font-bold">
                 {(result.confidence * 100).toFixed(1)}%
               </p>
-              <p className="mt-1 text-sm text-slate-400">confianza CNN</p>
+              <p className="text-sm text-slate-400">confianza CNN</p>
             </div>
           )}
 
-          {!loading && !result && !error && modelStatus === "ready" && (
+          {!loading && !result && !aerialResult && !error && modelStatus === "ready" && (
             <p className="mt-4 text-slate-400">
-              Sube un recorte de un espacio. La CNN devolverá disponible
-              (verde) u ocupado (rojo).
+              Sube una vista aérea del estacionamiento o un recorte de un solo
+              espacio.
             </p>
           )}
         </div>

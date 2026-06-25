@@ -1,11 +1,34 @@
 import type * as tf from "@tensorflow/tfjs";
 import { createParkingCnn } from "@/lib/cnnArchitecture";
+import {
+  computeParkingGrid,
+  type GridLayout,
+} from "@/lib/detectAerial";
 
 export type PredictionResult = {
   label: "Occupied" | "Empty";
   confidence: number;
   occupiedScore: number;
   engine: "cnn" | "unavailable";
+};
+
+export type SlotDetection = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label: "Occupied" | "Empty";
+  confidence: number;
+};
+
+export type AerialResult = {
+  slots: SlotDetection[];
+  available: number;
+  occupied: number;
+  total: number;
+  imageWidth: number;
+  imageHeight: number;
+  grid: GridLayout;
 };
 
 type TfModule = typeof import("@tensorflow/tfjs");
@@ -16,6 +39,7 @@ let loadPromise: Promise<boolean> | null = null;
 
 const MANIFEST_URL = "/models/parking/weights_manifest.json";
 const WEIGHTS_URL = "/models/parking/weights.bin";
+const BATCH_SIZE = 16;
 
 async function getTf(): Promise<TfModule> {
   if (!tfModule) {
@@ -82,7 +106,7 @@ export function isCnnLoaded(): boolean {
   return model !== null;
 }
 
-function preprocessImage(
+function preprocessImageData(
   tf: TfModule,
   imageData: ImageData,
 ): import("@tensorflow/tfjs").Tensor4D {
@@ -94,39 +118,123 @@ function preprocessImage(
   });
 }
 
-export async function predictWithCnn(file: File): Promise<PredictionResult> {
-  const ready = await loadCnnModel();
-  if (!ready || !model) {
-    throw new Error("MODEL_NOT_LOADED");
-  }
-
-  const tf = await getTf();
-  const bitmap = await createImageBitmap(file);
-  const canvas = document.createElement("canvas");
-  canvas.width = 64;
-  canvas.height = 64;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("No se pudo procesar la imagen");
-
-  ctx.drawImage(bitmap, 0, 0, 64, 64);
-  const imageData = ctx.getImageData(0, 0, 64, 64);
-  const input = preprocessImage(tf, imageData);
-
-  const output = model.predict(input) as import("@tensorflow/tfjs").Tensor;
-  const occupiedScore = (await output.data())[0];
-
-  input.dispose();
-  output.dispose();
-
+function scoreToResult(occupiedScore: number): Omit<PredictionResult, "engine"> {
   const label: PredictionResult["label"] =
     occupiedScore >= 0.5 ? "Occupied" : "Empty";
   const confidence =
     label === "Occupied" ? occupiedScore : 1 - occupiedScore;
+  return { label, confidence, occupiedScore };
+}
+
+async function predictTensor(
+  input: import("@tensorflow/tfjs").Tensor4D,
+): Promise<number[]> {
+  if (!model) throw new Error("MODEL_NOT_LOADED");
+  const output = model.predict(input) as import("@tensorflow/tfjs").Tensor;
+  const scores = Array.from(await output.data());
+  input.dispose();
+  output.dispose();
+  return scores;
+}
+
+function cropCell(
+  source: CanvasImageSource,
+  sw: number,
+  sh: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): ImageData {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(source, x, y, w, h, 0, 0, 64, 64);
+  return ctx.getImageData(0, 0, 64, 64);
+}
+
+export async function predictWithCnn(file: File): Promise<PredictionResult> {
+  const ready = await loadCnnModel();
+  if (!ready || !model) throw new Error("MODEL_NOT_LOADED");
+
+  const tf = await getTf();
+  const bitmap = await createImageBitmap(file);
+  const imageData = cropCell(bitmap, bitmap.width, bitmap.height, 0, 0, bitmap.width, bitmap.height);
+  const input = preprocessImageData(tf, imageData);
+  const [score] = await predictTensor(input);
+  return { ...scoreToResult(score), engine: "cnn" };
+}
+
+export async function predictAerialLot(
+  file: File,
+  onProgress?: (done: number, total: number) => void,
+): Promise<AerialResult> {
+  const ready = await loadCnnModel();
+  if (!ready || !model) throw new Error("MODEL_NOT_LOADED");
+
+  const tf = await getTf();
+  const bitmap = await createImageBitmap(file);
+  const { width, height } = bitmap;
+  const grid = computeParkingGrid(width, height);
+
+  const cellW = grid.roiW / grid.cols;
+  const cellH = grid.roiH / grid.rows;
+  const cells: { x: number; y: number; w: number; h: number }[] = [];
+
+  for (let row = 0; row < grid.rows; row++) {
+    for (let col = 0; col < grid.cols; col++) {
+      cells.push({
+        x: grid.marginX + col * cellW,
+        y: grid.marginY + row * cellH,
+        w: cellW,
+        h: cellH,
+      });
+    }
+  }
+
+  const slots: SlotDetection[] = [];
+  const total = cells.length;
+
+  for (let i = 0; i < total; i += BATCH_SIZE) {
+    const batchCells = cells.slice(i, i + BATCH_SIZE);
+    const batchTensors = batchCells.map((c) =>
+      preprocessImageData(
+        tf,
+        cropCell(bitmap, width, height, c.x, c.y, c.w, c.h),
+      ),
+    );
+
+    const batchInput = tf.concat(batchTensors) as import("@tensorflow/tfjs").Tensor4D;
+    batchTensors.forEach((t) => t.dispose());
+
+    const scores = await predictTensor(batchInput);
+
+    batchCells.forEach((c, j) => {
+      const { label, confidence } = scoreToResult(scores[j]);
+      slots.push({
+        x: c.x,
+        y: c.y,
+        width: c.w,
+        height: c.h,
+        label,
+        confidence,
+      });
+    });
+
+    onProgress?.(Math.min(i + BATCH_SIZE, total), total);
+  }
+
+  const available = slots.filter((s) => s.label === "Empty").length;
+  const occupied = slots.filter((s) => s.label === "Occupied").length;
 
   return {
-    label,
-    confidence,
-    occupiedScore,
-    engine: "cnn",
+    slots,
+    available,
+    occupied,
+    total: slots.length,
+    imageWidth: width,
+    imageHeight: height,
+    grid,
   };
 }

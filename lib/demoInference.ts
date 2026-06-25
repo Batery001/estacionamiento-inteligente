@@ -1,9 +1,14 @@
-import { predictWithCnn, type PredictionResult } from "@/lib/cnnInference";
+import {
+  predictWithCnn,
+  predictAerialLot,
+  type PredictionResult,
+  type AerialResult,
+} from "@/lib/cnnInference";
 
-export type { PredictionResult };
+export type { PredictionResult, AerialResult };
 
 export async function predictParkingSpot(file: File): Promise<PredictionResult> {
   return predictWithCnn(file);
 }
 
-export { loadCnnModel, isCnnLoaded, isCnnModelAvailable } from "@/lib/cnnInference";
+export { predictAerialLot, loadCnnModel, isCnnLoaded, isCnnModelAvailable } from "@/lib/cnnInference";
